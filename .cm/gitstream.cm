@@ -1,0 +1,204 @@
+# -*- mode: yaml -*-
+# +----------------------------------------------------------------------------+
+# | Northwind Financial: pull request policy for the payments service          |
+# | One file, versioned with the code, reviewed like code.                     |
+# | Reference: https://docs.gitstream.cm                                       |
+# +----------------------------------------------------------------------------+
+manifest:
+  version: 1.0
+
+automations:
+
+  # ==========================================================================
+  # 1. ENRICH: give the reviewer context before they open the PR
+  # ==========================================================================
+
+  # How long will this take to review? Green < 5 min, yellow < 20, red 20+.
+  estimated_time_to_review:
+    if:
+      - true
+    run:
+      - action: add-label@v1
+        args:
+          label: "{{ calc.etr }} min review"
+          color: {{ colors.red if (calc.etr >= 20) else ( colors.yellow if (calc.etr >= 5) else colors.green ) }}
+
+  # Make AI-assisted work visible: coding agents add a Co-Authored-By trailer.
+  label_ai_assisted:
+    if:
+      - {{ is.ai_assisted }}
+    run:
+      - action: add-label@v1
+        args:
+          label: "🤖 AI-assisted"
+          color: {{ colors.purple }}
+
+  # Audit trail: every change must link to a Jira ticket in the title.
+  missing_jira_ticket:
+    if:
+      - {{ not has.jira_ticket }}
+    run:
+      - action: add-label@v1
+        args:
+          label: "missing-jira"
+          color: {{ colors.red }}
+      - action: add-comment@v1
+        args:
+          comment: |
+            Northwind policy: every change links to a Jira ticket.
+            Add the ticket key (for example `NW-123`) to the PR title.
+
+  # Code changed but no tests changed.
+  missing_tests:
+    if:
+      - {{ is.code_change }}
+      - {{ files | match(regex=r/^tests\//) | nope }}
+    run:
+      - action: add-label@v1
+        args:
+          label: "missing-tests"
+          color: {{ colors.yellow }}
+
+  # Who actually knows this code? Based on git blame and recent activity.
+  code_experts:
+    if:
+      - {{ is.code_change }}
+    run:
+      - action: explain-code-experts@v1
+        args:
+          gt: 10
+
+  # ==========================================================================
+  # 2. AUTOMATE: let safe work through, slow risky work down
+  # ==========================================================================
+
+  # Docs-only or tests-only changes: approve automatically, explain why.
+  safe_changes:
+    if:
+      - {{ is.safe_change }}
+    run:
+      - action: add-label@v1
+        args:
+          label: "safe-change"
+          color: {{ colors.green }}
+      - action: approve@v1
+      - action: add-comment@v1
+        args:
+          comment: |
+            Docs or tests only: approved automatically under Northwind policy.
+
+  # Money-moving code: payments team reviews, and two approvals are required.
+  payments_review:
+    if:
+      - {{ is.payments }}
+    run:
+      - action: add-label@v1
+        args:
+          label: "payments"
+          color: {{ colors.red }}
+      - action: add-reviewers@v1
+        args:
+          reviewers: [__ORG__/payments]
+          fail_on_error: false
+      - action: set-required-approvals@v1
+        args:
+          approvals: 2
+
+  # Large changes are where bugs hide: ask for a second reviewer.
+  large_change:
+    if:
+      - {{ (files | length) >= 8 or calc.etr >= 30 }}
+    run:
+      - action: set-required-approvals@v1
+        args:
+          approvals: 2
+      - action: add-comment@v1
+        args:
+          comment: |
+            This PR changes {{ files | length }} files (about {{ calc.etr }} min to review).
+            Large changes need two approvals. Consider splitting it.
+
+  # Block patterns the platform team has retired. One rule per entry below.
+  {% for item in deprecated %}
+  deprecated_{{ item.name }}:
+    if:
+      - {{ source.diff.files | matchDiffLines(regex=item.regex) | some }}
+    run:
+      - action: add-label@v1
+        args:
+          label: "deprecated-pattern"
+          color: {{ colors.red }}
+      - action: request-changes@v1
+        args:
+          comment: |
+            `{{ item.old }}` is deprecated at Northwind. {{ item.instead }}
+  {% endfor %}
+
+  # ==========================================================================
+  # 3. REVIEW WITH AI: LinearB AI code review, guided by our own rules
+  # ==========================================================================
+
+  ai_code_review:
+    if:
+      - {{ not pr.draft }}
+      - {{ not (is.bot_author or is.bot_branch) }}
+      - {{ not is.safe_change }}
+    run:
+      - action: code-review@v1
+        args:
+          issues_limit: 10
+          approve_on_LGTM: false
+          guidelines: {{ "./REVIEW_RULES.md" | readFile() | dump }}
+
+  ai_description:
+    if:
+      - {{ not pr.draft }}
+      - {{ not (is.bot_author or is.bot_branch) }}
+    run:
+      - action: describe-changes@v1
+        args:
+          concat_mode: append
+
+  # Chain on the AI result: a clean review of a small, non-payments change
+  # is approved automatically. Payments code always gets humans.
+  approve_clean_low_risk:
+    if:
+      - {{ actions.ai_code_review.outputs.is_LGTM }}
+      - {{ not is.payments }}
+      - {{ calc.etr <= 5 }}
+    run:
+      - action: approve@v1
+
+# +----------------------------------------------------------------------------+
+# | Custom expressions                                                         |
+# +----------------------------------------------------------------------------+
+
+calc:
+  etr: {{ branch | estimatedReviewTime }}
+
+has:
+  jira_ticket: {{ pr.title | includes(regex=r/\bNW-\d+\b/) }}
+
+is:
+  code_change: {{ files | match(regex=r/^app\//) | some }}
+  payments: {{ files | match(regex=r/^app\/(routers|services)\/(orders|refunds|payments|transactions|webhooks)/) | some }}
+  safe_change: {{ (files | allDocs) or (files | allTests) }}
+  ai_assisted: {{ branch.commits.messages | match(regex=r/[Cc]o-[Aa]uthored-[Bb]y:.*(Claude|Copilot|Cursor)/) | some }}
+  bot_author: {{ pr.author | match(list=['github-actions', '_bot_', '[bot]', 'dependabot']) | some }}
+  bot_branch: {{ branch.name | match(list=['renovate/']) | some }}
+
+deprecated:
+  - name: urllib
+    regex: r/^[+].*urllib\.request/
+    old: urllib.request
+    instead: Use `app.http.client`, which enforces timeouts and the outbound allow-list.
+  - name: float_money
+    regex: r/^[+].*amount\w*\s*:\s*float/
+    old: float money fields
+    instead: Money is integer cents. Use `amount_cents: int`.
+
+colors:
+  red: 'b60205'
+  yellow: 'fbca04'
+  green: '0e8a16'
+  purple: '6f42c1'
