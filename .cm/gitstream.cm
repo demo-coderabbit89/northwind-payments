@@ -98,7 +98,7 @@ automations:
           color: {{ colors.red }}
       - action: add-reviewers@v1
         args:
-          reviewers: [__ORG__/payments]
+          reviewers: [demo-coderabbit89/payments]
           fail_on_error: false
       - action: set-required-approvals@v1
         args:
