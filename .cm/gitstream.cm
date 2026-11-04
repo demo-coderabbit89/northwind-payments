@@ -98,7 +98,7 @@ automations:
           color: {{ colors.red }}
       - action: add-reviewers@v1
         args:
-          reviewers: [__ORG__/payments]
+          reviewers: [demo-coderabbit89/payments]
           fail_on_error: false
       - action: set-required-approvals@v1
         args:
@@ -191,11 +191,11 @@ deprecated:
   - name: urllib
     regex: r/^[+].*urllib\.request/
     old: urllib.request
-    instead: Use `app.http.client`, which enforces timeouts and the outbound allow-list.
+    instead: "Use `app.http.client`, which enforces timeouts and the outbound allow-list."
   - name: float_money
     regex: r/^[+].*amount\w*\s*:\s*float/
     old: float money fields
-    instead: Money is integer cents. Use `amount_cents: int`.
+    instead: "Money is integer cents. Use `amount_cents: int`."
 
 colors:
   red: 'b60205'
