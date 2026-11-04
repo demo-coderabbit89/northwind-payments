@@ -2,6 +2,7 @@
 import sqlite3
 
 from app import audit
+from app.services import webhooks
 from app.models import CaptureRequest
 
 
@@ -16,4 +17,5 @@ def capture(conn: sqlite3.Connection, actor_id: int, req: CaptureRequest) -> int
         (order_id, req.amount_cents),
     )
     audit.record(conn, actor_id, "capture", "order", order_id, {"amount_cents": req.amount_cents})
+    webhooks.notify("payment.captured", {"order_id": order_id, "amount_cents": req.amount_cents})
     return order_id
