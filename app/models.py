@@ -1,11 +1,11 @@
-"""API models. Money is always integer cents."""
+"""API models."""
 from pydantic import BaseModel, Field
 
 
 class Order(BaseModel):
     id: int
     customer_id: int
-    amount_cents: int
+    amount: float
     currency: str
     card_last4: str
     status: str
@@ -15,7 +15,7 @@ class Transaction(BaseModel):
     id: int
     order_id: int
     kind: str
-    amount_cents: int
+    amount: float
     created_at: str
 
 

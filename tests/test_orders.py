@@ -4,7 +4,7 @@ from tests.conftest import ALICE, BOB, OPS
 def test_owner_can_read_order(client, alice_order):
     r = client.get(f"/orders/{alice_order['id']}", headers=ALICE)
     assert r.status_code == 200
-    assert r.json()["amount_cents"] == 5000
+    assert r.json()["amount"] == 50.0
 
 
 def test_other_customer_cannot_read_order(client, alice_order):
